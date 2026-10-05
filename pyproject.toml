@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exosignal"
+version = "0.1.0"
+description = "A compact, scientifically careful TESS light-curve pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "astropy>=6.0",
+    "astroquery>=0.4.7",
+    "lightkurve>=2.5",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+exosignal = "exosignal.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
