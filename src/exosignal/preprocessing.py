@@ -32,13 +32,21 @@ def _odd_at_least(value: int) -> int:
 
 
 def _running_median_trend(
-    time: np.ndarray, flux: np.ndarray, config: PreprocessingConfig
+    time: np.ndarray,
+    flux: np.ndarray,
+    config: PreprocessingConfig,
+    protected_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """Estimate a long baseline within continuous pieces of one sector."""
     trend = np.empty_like(flux, dtype=float)
     for segment in _segments_from_gaps(time, config.gap_break_days):
         segment_time = time[segment]
         segment_flux = flux[segment]
+        segment_mask = (
+            protected_mask[segment]
+            if protected_mask is not None
+            else np.zeros(len(segment_flux), dtype=bool)
+        )
         if len(segment_flux) < config.min_segment_points:
             trend[segment] = np.nanmedian(segment_flux)
             continue
@@ -49,11 +57,25 @@ def _running_median_trend(
         )
         # A segment shorter than the intended window is assigned its robust
         # baseline rather than filtering across an observational boundary.
+        if segment_mask.any():
+            # The candidate samples remain in the final light curve. They are
+            # interpolated *only* while estimating the long trend so a real
+            # flux dip does not bias its own local baseline upward.
+            usable = ~segment_mask
+            if usable.sum() < 2:
+                trend_input = np.full_like(segment_flux, np.nanmedian(segment_flux))
+            else:
+                trend_input = segment_flux.copy()
+                trend_input[segment_mask] = np.interp(
+                    segment_time[segment_mask], segment_time[usable], segment_flux[usable]
+                )
+        else:
+            trend_input = segment_flux
         if window_points >= len(segment_flux):
-            trend[segment] = np.nanmedian(segment_flux)
+            trend[segment] = np.nanmedian(trend_input)
         else:
             trend[segment] = median_filter(
-                segment_flux, size=window_points, mode="nearest"
+                trend_input, size=window_points, mode="nearest"
             )
     return trend
 
@@ -70,18 +92,21 @@ def process_sector(
 ) -> ProcessedSector:
     """Clean and detrend exactly one SPOC PDCSAP sector.
 
-    ``transit_mask`` is reserved for the transit-aware second detrending pass
-    planned after a search algorithm exists; passing it currently raises an
-    error rather than silently claiming masked processing occurred.
+    A supplied ``transit_mask`` marks predicted candidate windows. Such samples
+    are retained, but excluded from local trend estimation during the second
+    detrending pass.
     """
     config = config or PreprocessingConfig()
-    if transit_mask is not None:
-        raise NotImplementedError("Transit masking will be added with Commit 2 search.")
-
     time_array = np.asarray(time, dtype=float)
     flux_array = np.asarray(flux, dtype=float)
     if len(time_array) != len(flux_array):
         raise ValueError("time and flux must have the same length")
+    if transit_mask is None:
+        transit_mask_array = np.zeros(len(time_array), dtype=bool)
+    else:
+        transit_mask_array = np.asarray(transit_mask, dtype=bool)
+        if len(transit_mask_array) != len(time_array):
+            raise ValueError("transit_mask must match time length")
     if flux_err is None:
         error_array = np.full(len(time_array), np.nan)
     else:
@@ -107,6 +132,7 @@ def process_sector(
             "time": time_array[keep],
             "pdcsap_flux": flux_array[keep],
             "pdcsap_flux_err": error_array[keep],
+            "transit_mask": transit_mask_array[keep],
         }
     ).sort_values("time", ignore_index=True)
     if len(cleaned) < config.min_segment_points:
@@ -142,7 +168,9 @@ def process_sector(
         )
 
     values = cleaned["pdcsap_flux"].to_numpy()
-    trend = _running_median_trend(cleaned["time"].to_numpy(), values, config)
+    trend = _running_median_trend(
+        cleaned["time"].to_numpy(), values, config, cleaned["transit_mask"].to_numpy()
+    )
     valid_trend = np.isfinite(trend) & (trend > 0)
     cleaned = cleaned.loc[valid_trend].reset_index(drop=True)
     trend = trend[valid_trend]
@@ -152,12 +180,14 @@ def process_sector(
     raw_normalized = cleaned["pdcsap_flux"].to_numpy() / median_flux - 1.0
     relative_flux = cleaned["pdcsap_flux"].to_numpy() / trend - 1.0
     relative_error = cleaned["pdcsap_flux_err"].to_numpy() / trend
+    raw_normalized_error = cleaned["pdcsap_flux_err"].to_numpy() / median_flux
     data = pd.DataFrame(
         {
             "time": cleaned["time"],
             "flux": relative_flux,
             "flux_err": relative_error,
             "raw_normalized_flux": raw_normalized,
+            "raw_normalized_flux_err": raw_normalized_error,
             "sector": int(sector),
         }
     )
@@ -170,6 +200,7 @@ def process_sector(
         "output_cadences": len(data),
         "sector_median_pdcsap_flux": median_flux,
         "continuous_segments": len(_segments_from_gaps(data["time"].to_numpy(), config.gap_break_days)),
+        "protected_transit_cadences": int(cleaned["transit_mask"].sum()),
     }
     return ProcessedSector(sector=int(sector), data=data, diagnostics=diagnostics)
 
@@ -179,6 +210,6 @@ def combine_sectors(sectors: Iterable[ProcessedSector]) -> pd.DataFrame:
     frames = [item.data for item in sectors]
     if not frames:
         return pd.DataFrame(
-            columns=["time", "flux", "flux_err", "raw_normalized_flux", "sector"]
+            columns=["time", "flux", "flux_err", "raw_normalized_flux", "raw_normalized_flux_err", "sector"]
         )
     return pd.concat(frames, ignore_index=True).sort_values("time", ignore_index=True)

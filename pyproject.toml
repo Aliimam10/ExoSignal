@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
     "scipy>=1.11",
+    "transitleastsquares>=1.32",
 ]
 
 [project.optional-dependencies]
@@ -30,4 +31,3 @@ addopts = "-ra"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

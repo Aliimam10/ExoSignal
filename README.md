@@ -5,8 +5,9 @@ candidate-vetting project. This first implementation stage retrieves public
 SPOC PDCSAP light curves for a TIC, preprocesses each available sector
 independently, and writes a local, inspectable data product.
 
-It does not yet search for transits, fit transit models, classify candidates,
-or claim planetary discoveries.
+It uses Box Least Squares (BLS) to find periodic transit-like signals, then
+optionally refines promising peaks with Transit Least Squares (TLS). It does
+not classify candidates or claim planetary discoveries.
 
 ## Run the data pipeline
 
@@ -19,7 +20,7 @@ exosignal analyze "TIC 307210830"
 
 The command writes `outputs/targets/307210830/` by default. It contains the
 processed cadence table, sector diagnostics, target metadata, run
-configuration, and a static PNG light-curve plot.
+configuration, BLS candidate outputs, and static diagnostic PNGs.
 
 ## Commit 1 preprocessing choices
 
@@ -47,5 +48,21 @@ normalisation is retained in `raw_normalized_flux` for inspection.
 
 ## Scope
 
-This repository currently implements **Commit 1 only**: TESS data retrieval,
-sector-aware preprocessing, persistence, plotting, and tests.
+## Commit 2 search
+
+BLS searches 0.5--30 day periods (also limited to one third of the observed
+baseline) and 0.5--10 hour durations. It requires at least three observed
+transit windows and a BLS SNR of 6. It returns only the strongest independent
+peak per iteration, rejecting near-duplicates and simple P/2, 2P, and 3P
+aliases. Up to three signals are searched for: each accepted signal's transit
+windows are excluded for the next residual search.
+
+After preliminary BLS detection, ExoSignal recalculates each sector's trend
+with a 1.5-duration-wide predicted transit mask. The measurements themselves
+are kept; only the baseline estimator sees interpolated values at those times.
+The candidate is then remeasured locally with BLS. TLS is a second-stage
+refinement only and may be skipped with `--skip-tls`.
+
+This repository currently implements **Commit 2 only**: TESS retrieval,
+sector-aware preprocessing, BLS/TLS candidate measurement, static candidate
+plots, individual-transit extraction, persistence, and tests.
