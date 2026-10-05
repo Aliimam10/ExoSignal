@@ -44,3 +44,47 @@ class SearchConfig:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class VettingConfig:
+    """Conservative, explicit criteria for Commit 3 candidate diagnostics."""
+
+    event_detection_snr: float = 3.0
+    minimum_event_inner_points: int = 2
+    minimum_event_outer_points: int = 4
+    odd_even_warning_sigma: float = 3.0
+    odd_even_fail_sigma: float = 5.0
+    secondary_warning_sigma: float = 3.0
+    secondary_fail_sigma: float = 5.0
+    sector_warning_sigma: float = 3.0
+    sector_fail_sigma: float = 5.0
+    weak_event_warning_fraction: float = 0.35
+    variability_warning_rms: float = 0.01
+    variability_fail_rms: float = 0.03
+    crowding_warning_minimum: float = 0.8
+    crowding_fail_minimum: float = 0.5
+    pixel_consistent_offset_pixels: float = 0.5
+    pixel_off_target_offset_pixels: float = 1.0
+    pixel_minimum_in_cadences: int = 3
+    pixel_minimum_out_cadences: int = 5
+    generate_pixel_plots: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    """Fixed, deliberately small modelling choices for Commit 4."""
+
+    random_seed: int = 20261005
+    train_fraction: float = 0.70
+    validation_fraction: float = 0.15
+    test_fraction: float = 0.15
+    random_forest_trees: int = 300
+    probability_threshold: float = 0.5
+    calibration_method: str = "sigmoid"
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)

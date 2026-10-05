@@ -1,5 +1,5 @@
 """ExoSignal: a compact TESS light-curve analysis project."""
 
-from .config import PreprocessingConfig, SearchConfig
+from .config import BenchmarkConfig, PreprocessingConfig, SearchConfig, VettingConfig
 
-__all__ = ["PreprocessingConfig", "SearchConfig"]
+__all__ = ["BenchmarkConfig", "PreprocessingConfig", "SearchConfig", "VettingConfig"]

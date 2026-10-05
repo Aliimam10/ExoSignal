@@ -66,3 +66,27 @@ refinement only and may be skipped with `--skip-tls`.
 This repository currently implements **Commit 2 only**: TESS retrieval,
 sector-aware preprocessing, BLS/TLS candidate measurement, static candidate
 plots, individual-transit extraction, persistence, and tests.
+
+## Commit 3 vetting
+
+Use an existing target run to create evidence-preserving astrophysical-vetting
+dossiers:
+
+```bash
+exosignal vet "TIC 402026209"
+```
+
+Each diagnostic stores its measured values, explicit criterion, and a short
+explanation alongside a `PASS`, `WARNING`, `FAIL`, or `NOT_AVAILABLE` status.
+The checks cover individual-event consistency, odd/even depths, a phase-0.5
+secondary eclipse, sector depth consistency, out-of-transit RMS, and SPOC
+`CROWDSAP` contamination information.
+
+Where a suitable SPOC Target Pixel File is available, ExoSignal computes
+in-/out-of-transit and difference images plus a simple flux-loss centroid.
+Target Pixel Files are cached per TIC/sector. A centroid consistent with the
+target does **not** confirm a planet, and unavailable TPF data are reported as
+`Pixel source check: NOT AVAILABLE`, never as a candidate failure.
+
+This repository currently implements **Commit 3 only**. It does not yet
+perform catalogue crossmatching, ML, discovery-sample searches, or UI work.

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .config import PreprocessingConfig, SearchConfig
+from .dossier import run_vetting_dossiers
 from .errors import ExoSignalError
 from .plotting import (
     individual_transit_data,
@@ -105,7 +106,9 @@ def analyse_target(
     candidate_directory.mkdir(exist_ok=True)
     # A rerun for the same target must not leave dossiers from a previous,
     # differently configured search beside the current candidate table.
-    for pattern in ("c??_*.png", "c??_*.csv", "candidates.json", "candidates.csv"):
+    for pattern in (
+        "c??_*.png", "c??_*.csv", "c??_*.json", "candidates.json", "candidates.csv"
+    ):
         for stale_output in candidate_directory.glob(pattern):
             stale_output.unlink()
     candidate_dicts = [candidate.to_dict() for candidate in candidates]
@@ -125,6 +128,7 @@ def analyse_target(
         candidate_outputs.extend(
             [str(periodogram_path), str(phase_path), str(transit_data_path), str(transit_plot_path)]
         )
+    vetting_summary = run_vetting_dossiers(tic_id, output_root)
     return {
         "tic_id": tic_id,
         "run_directory": str(run_directory),
@@ -132,6 +136,7 @@ def analyse_target(
         "skipped_products": skipped,
         "cadences": len(refined),
         "candidates": candidate_dicts,
+        "vetting": vetting_summary,
         "outputs": [
             str(initial_data_path), str(data_path), str(sector_path), str(metadata_path),
             str(config_path), str(search_config_path), str(plot_path),

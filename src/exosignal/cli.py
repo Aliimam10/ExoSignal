@@ -8,6 +8,8 @@ import sys
 
 from .errors import ExoSignalError
 from .config import SearchConfig
+from .dossier import run_vetting_dossiers
+from .tess import parse_tic_id
 from .pipeline import analyse_target
 
 
@@ -18,15 +20,21 @@ def build_parser() -> argparse.ArgumentParser:
     analyse.add_argument("tic_id", help='TIC ID, for example "TIC 307210830".')
     analyse.add_argument("--output-root", default="outputs/targets", help="Directory for target outputs.")
     analyse.add_argument("--skip-tls", action="store_true", help="Skip optional TLS refinement.")
+    vet = subparsers.add_parser("vet", help="Create Commit 3 vetting dossiers for an existing target run.")
+    vet.add_argument("tic_id", help='TIC ID, for example "TIC 402026209".')
+    vet.add_argument("--output-root", default="outputs/targets", help="Directory containing target outputs.")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     try:
-        summary = analyse_target(
-            args.tic_id, args.output_root, search_config=SearchConfig(tls_enabled=not args.skip_tls)
-        )
+        if args.command == "analyze":
+            summary = analyse_target(
+                args.tic_id, args.output_root, search_config=SearchConfig(tls_enabled=not args.skip_tls)
+            )
+        else:
+            summary = run_vetting_dossiers(parse_tic_id(args.tic_id), args.output_root)
     except ExoSignalError as error:
         print(f"ExoSignal error: {error}", file=sys.stderr)
         raise SystemExit(2) from error

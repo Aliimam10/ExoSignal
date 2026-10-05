@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .search import BlsResult, Candidate, candidate_transit_mask
+from .search import BlsResult, Candidate
+from .vetting import PixelSectorMeasurement
 
 
 def plot_processed_lightcurve(data: pd.DataFrame, output_path: Path, tic_id: int) -> None:
@@ -114,5 +115,28 @@ def plot_individual_transits(data: pd.DataFrame, candidate: Candidate, output_pa
         axis.set_visible(False)
     figure.suptitle(f"{candidate.candidate_id} individual transit windows")
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=170)
+    plt.close(figure)
+
+
+def plot_pixel_diagnostic(measurement: PixelSectorMeasurement, output_path: Path, candidate: Candidate) -> None:
+    """Render reusable in/out/difference-image diagnostics for one candidate."""
+    if measurement.out_image is None or measurement.in_image is None or measurement.difference_image is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure, axes = plt.subplots(1, 3, figsize=(11, 3.6), constrained_layout=True)
+    panels = ((measurement.out_image, "Mean out of transit"), (measurement.in_image, "Mean in transit"), (measurement.difference_image, "Out − in"))
+    for axis, (image, title) in zip(axes, panels):
+        render = axis.imshow(image, origin="lower", cmap="viridis")
+        figure.colorbar(render, ax=axis, fraction=0.046, pad=0.04)
+        axis.set_title(title)
+        if measurement.expected_position_xy is not None:
+            axis.plot(*measurement.expected_position_xy, marker="+", color="white", markersize=11, markeredgewidth=2, label="expected target")
+        if axis is axes[2] and measurement.source_position_xy is not None:
+            axis.plot(*measurement.source_position_xy, marker="x", color="red", markersize=9, markeredgewidth=2, label="flux-loss centroid")
+        if axis is axes[2]:
+            axis.legend(loc="upper right", fontsize=7)
+    offset = "unavailable" if measurement.offset_pixels is None else f"{measurement.offset_pixels:.2f} px"
+    figure.suptitle(f"{candidate.candidate_id} sector {measurement.sector}: {measurement.interpretation} (offset {offset})")
     figure.savefig(output_path, dpi=170)
     plt.close(figure)
