@@ -16,7 +16,7 @@ from .catalogue import download_toi_catalogue, reveal_catalogue_matches
 from .config import SearchConfig
 from .discovery import run_discovery
 from .dossier import run_vetting_dossiers
-from .injection import compact_grid
+from .injection import compact_grid, plot_recovery_map
 from .ml import train_models
 from .tess import parse_tic_id
 from .pipeline import analyse_target
@@ -50,9 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     discover = subparsers.add_parser("discover", help="Run a catalogue-blind MAST sector discovery sample.")
     discover.add_argument("--sector", required=True, type=int)
     discover.add_argument("--maximum-targets", required=True, type=int)
-    discover.add_argument("--model", required=True, help="Saved calibrated Random Forest joblib.")
+    discover.add_argument("--model", required=True, help="Saved ranking-model joblib.")
     discover.add_argument("--output-directory", default="outputs/discovery")
     discover.add_argument("--tmag-limit", type=float)
+    discover.add_argument("--exclude-manifest", action="append", default=[], help="Label-manifest CSV whose TICs must be excluded (repeat for supplements).")
     reveal = subparsers.add_parser("reveal", help="Crossmatch an already frozen discovery ranking afterwards.")
     reveal.add_argument("ranking", help="pre_crossmatch_ranking.csv")
     reveal.add_argument("--output", default="outputs/discovery/catalogue_reveal.csv")
@@ -99,7 +100,10 @@ def main() -> None:
         elif args.command == "train":
             summary = train_models(pd.read_csv(args.features), args.output_directory)
         elif args.command == "discover":
-            summary = run_discovery(args.sector, args.maximum_targets, args.model, args.output_directory, args.tmag_limit)
+            manifest_tics: set[int] = set()
+            for manifest_path in args.exclude_manifest:
+                manifest_tics.update(pd.read_csv(manifest_path)["tic_id"].astype(int))
+            summary = run_discovery(args.sector, args.maximum_targets, args.model, args.output_directory, args.tmag_limit, additional_excluded_tic_ids=manifest_tics)
         elif args.command == "reveal":
             ranking = pd.read_csv(args.ranking)
             output = Path(args.output)
@@ -107,7 +111,7 @@ def main() -> None:
             revealed = reveal_catalogue_matches(ranking, catalogue)
             output.parent.mkdir(parents=True, exist_ok=True)
             revealed.to_csv(output, index=False)
-            summary = {"catalogue_reveal": str(output), "signals": len(revealed), "unmatched": int(revealed.get("catalogue_reveal", pd.Series(dtype=str)).eq("POTENTIALLY UNCATALOGUED TRANSIT-LIKE SIGNAL").sum())}
+            summary = {"catalogue_reveal": str(output), "signals": len(revealed), "no_match_in_queried_exofop_toi_catalogue": int(revealed.get("catalogue_reveal", pd.Series(dtype=str)).eq("NO_MATCH_IN_QUERIED_EXOFOP_TOI_CATALOGUE").sum())}
         else:
             tic = parse_tic_id(args.tic_id)
             data = pd.read_csv(Path(args.output_root) / str(tic) / "processed_lightcurve_initial.csv")
@@ -118,7 +122,14 @@ def main() -> None:
             results = compact_grid(data, [float(value) for value in args.periods.split(",")], [float(value) for value in args.depths.split(",")], args.duration_hours, float(data["time"].median()), search_config=injection_search)
             output = Path(args.output_root) / str(tic) / "injection_recovery.csv"
             results.to_csv(output, index=False)
-            summary = {"injection_recovery": str(output), "trials": len(results), "exact_period_recoveries": int(results["recovery"].eq("exact_period").sum()), "harmonic_recoveries": int(results["recovery"].eq("simple_harmonic").sum())}
+            plot = output.with_suffix(".png")
+            plot_recovery_map(results, plot)
+            summary = {
+                "injection_recovery": str(output), "sensitivity_plot": str(plot), "trials": len(results),
+                "exact_period_recoveries": int(results["recovery"].eq("exact_period").sum()),
+                "harmonic_recoveries": int(results["recovery"].eq("simple_harmonic").sum()),
+                "non_recoveries": int(results["recovery"].isin(["not_recovered", "other_period"]).sum()),
+            }
     except ExoSignalError as error:
         print(f"ExoSignal error: {error}", file=sys.stderr)
         raise SystemExit(2) from error

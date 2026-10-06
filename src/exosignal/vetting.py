@@ -104,7 +104,12 @@ def individual_transit_events(
         inner_count, outer_count = len(inner), len(outer)
         sector = None
         if local_coverage.any():
-            sector = int(data.loc[local_coverage, "sector"].mode().iloc[0])
+            sector_values = pd.to_numeric(data.loc[local_coverage, "sector"], errors="coerce")
+            sector_values = sector_values.loc[np.isfinite(sector_values)]
+            if not sector_values.empty:
+                mode = float(sector_values.mode().iloc[0])
+                if mode.is_integer():
+                    sector = int(mode)
         if not local_coverage.any():
             category = "outside_observing_coverage"
             depth = uncertainty = snr = np.nan

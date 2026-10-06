@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from .config import PreprocessingConfig, SearchConfig
 from .preprocessing import combine_sectors, process_sector
@@ -100,3 +101,36 @@ def compact_grid(data: pd.DataFrame, periods_days: list[float], depths: list[flo
             row["recovered_period_days"] = result["recovered"]["period_days"] if result["recovered"] else np.nan
             rows.append(row)
     return pd.DataFrame(rows)
+
+
+def plot_recovery_map(results: pd.DataFrame, path: str | "Path") -> None:
+    """Save a compact, categorical period--depth recovery map.
+
+    This intentionally shows outcomes rather than smoothing them into a
+    completeness estimate: the grid is a small real-noise sensitivity study,
+    not a population-level occurrence-rate simulation.
+    """
+    from pathlib import Path
+
+    periods = sorted(results["period_days"].unique())
+    depths = sorted(results["depth"].unique())
+    codes = {"not_recovered": 0, "other_period": 0, "simple_harmonic": 1, "exact_period": 2}
+    grid = np.full((len(depths), len(periods)), np.nan)
+    for _, row in results.iterrows():
+        grid[depths.index(row["depth"]), periods.index(row["period_days"])] = codes.get(str(row["recovery"]), 0)
+    figure, axis = plt.subplots(figsize=(max(5, 1.1 * len(periods)), max(3.5, .8 * len(depths))))
+    image = axis.imshow(grid, cmap=plt.get_cmap("viridis", 3), vmin=0, vmax=2, aspect="auto")
+    colourbar = figure.colorbar(image, ax=axis, ticks=[0, 1, 2])
+    colourbar.ax.set_yticklabels(["not/other", "P/2 or 2P", "exact P"])
+    axis.set(
+        xticks=np.arange(len(periods)), xticklabels=[f"{period:g}" for period in periods],
+        yticks=np.arange(len(depths)), yticklabels=[f"{depth:.4g}" for depth in depths],
+        xlabel="Injected period (days)", ylabel="Injected transit depth", title="Real TESS-noise injection recovery",
+    )
+    for row_index, depth in enumerate(depths):
+        for column_index, period in enumerate(periods):
+            recovered = results.loc[(results["depth"] == depth) & (results["period_days"] == period), "recovery"].iloc[0]
+            axis.text(column_index, row_index, {"exact_period": "exact", "simple_harmonic": "harm.", "not_recovered": "none", "other_period": "other"}.get(str(recovered), "other"), ha="center", va="center", fontsize=8, color="white" if grid[row_index, column_index] == 0 else "black")
+    figure.tight_layout()
+    figure.savefig(Path(path), dpi=170)
+    plt.close(figure)

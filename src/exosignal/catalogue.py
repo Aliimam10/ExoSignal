@@ -54,7 +54,11 @@ def _period_match(candidate_period: float, catalogue_period: float, tolerance: f
 
 
 def reveal_catalogue_matches(ranking: pd.DataFrame, catalogue: pd.DataFrame, period_tolerance: float = 0.01) -> pd.DataFrame:
-    """Match frozen pre-crossmatch signals by TIC *and* period/harmonic relation."""
+    """Reveal matches in the queried ExoFOP TOI catalogue only.
+
+    This deliberately does not claim a non-match is globally uncatalogued:
+    confirmed-planet and eclipsing-binary catalogues are not queried here.
+    """
     output = ranking.copy()
     revealed: list[dict[str, Any]] = []
     for _, candidate in output.iterrows():
@@ -73,6 +77,9 @@ def reveal_catalogue_matches(ranking: pd.DataFrame, catalogue: pd.DataFrame, per
                 delta = abs(float(candidate["epoch_btjd"]) - catalog_epoch) % float(row["Period (days)"])
                 epoch_delta = min(delta, float(row["Period (days)"]) - delta)
             matches.append({"toi": row.get("TOI"), "catalogue_disposition": row.get("TFOPWG Disposition"), "catalogue_period_days": row.get("Period (days)"), "period_match": kind, "epoch_delta_days": epoch_delta})
-        revealed.append(matches[0] if matches else {"catalogue_reveal": "POTENTIALLY UNCATALOGUED TRANSIT-LIKE SIGNAL"})
+        revealed.append(matches[0] if matches else {
+            "catalogue_reveal": "NO_MATCH_IN_QUERIED_EXOFOP_TOI_CATALOGUE",
+            "catalogue_query_scope": "ExoFOP TOI catalogue only; further catalogue checks required.",
+        })
     reveal_frame = pd.DataFrame(revealed)
     return pd.concat([output.reset_index(drop=True), reveal_frame], axis=1)

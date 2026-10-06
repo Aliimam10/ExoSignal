@@ -106,7 +106,8 @@ exosignal label-manifest --per-class 100
 exosignal benchmark outputs/benchmark/label_manifest.csv
 exosignal train outputs/benchmark/benchmark_features.csv
 
-# This is catalogue-blind and freezes its ranking before reveal.
+# This is a blind discovery workflow demonstration, not a performance benchmark.
+# It is catalogue-blind and freezes its ranking before reveal.
 exosignal discover --sector 2 --maximum-targets 20 \
   --model outputs/models/logistic_regression.joblib
 exosignal reveal outputs/discovery/sector_002/pre_crossmatch_ranking.csv
@@ -126,13 +127,21 @@ Discovery records its MAST sector selection, product choice, deterministic
 ordering, attempted-TIC manifest, failures, and an immutable
 `pre_crossmatch_ranking.csv`. Catalogue reveal subsequently requires TIC plus
 period consistency (or an explicitly reported P/2 or 2P harmonic), rather
-than TIC identity alone. An unmatched signal is labelled only
-`POTENTIALLY UNCATALOGUED TRANSIT-LIKE SIGNAL`.
+than TIC identity alone. The implemented reveal currently queries the ExoFOP
+TOI catalogue only, so an unmatched signal is labelled
+`NO_MATCH_IN_QUERIED_EXOFOP_TOI_CATALOGUE`, not globally uncatalogued.
 
 When the model directory contains its persisted benchmark split, discovery
 automatically excludes every benchmark TIC before it samples the MAST sector;
 this prevents a training or held-out benchmark target being reused as the
 headline blind-discovery population.
+
+Supplemental negative examples, when required for calibration, are drawn only
+from the same trusted ExoFOP FP/FA dispositions as the original label
+manifest. They are processed through the identical retrieval, search,
+vetting, and numeric-feature pipeline, then included before the fixed
+TIC-level train/validation/test split. They are selected deterministically by
+period-stratified sampling, never by held-out model performance.
 
 The compact injection grid writes exact-period and harmonic recoveries
 separately. It injects into saved per-sector PDCSAP-normalised data before the

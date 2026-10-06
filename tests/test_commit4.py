@@ -3,10 +3,12 @@ import pandas as pd
 
 from exosignal.config import BenchmarkConfig
 from exosignal.catalogue import reveal_catalogue_matches
+from exosignal.dossier import usable_sector_ids
 from exosignal.benchmark import _period_match, benchmark_manifest
 from exosignal.features import MODEL_FEATURES, feature_row
 from exosignal.injection import recovery_kind
 from exosignal.ml import split_by_tic, train_models
+from exosignal.discovery import target_tic_id
 
 
 def test_feature_row_uses_measurements_not_vetting_statuses():
@@ -65,7 +67,8 @@ def test_catalogue_reveal_requires_period_not_tic_alone():
     catalogue = pd.DataFrame({"TIC ID": [1], "TOI": [1.01], "TFOPWG Disposition": ["KP"], "Period (days)": [3.0], "Epoch (BJD)": [2457100.0]})
     result = reveal_catalogue_matches(ranking, catalogue)
     assert result.loc[0, "period_match"] == "exact_period"
-    assert result.loc[1, "catalogue_reveal"] == "POTENTIALLY UNCATALOGUED TRANSIT-LIKE SIGNAL"
+    assert result.loc[1, "catalogue_reveal"] == "NO_MATCH_IN_QUERIED_EXOFOP_TOI_CATALOGUE"
+    assert "ExoFOP TOI catalogue only" in result.loc[1, "catalogue_query_scope"]
 
 
 def test_period_match_labels_harmonics_with_same_fractional_tolerance():
@@ -85,3 +88,14 @@ def test_manifest_is_seeded_and_not_short_period_head_selection():
     second = benchmark_manifest(catalogue, 8)
     assert first.equals(second)
     assert first.groupby("label")["catalogue_period_days"].max().min() > 5
+
+
+def test_discovery_target_parser_accepts_current_mast_numeric_tics():
+    assert target_tic_id("304134062") == 304134062
+    assert target_tic_id("TIC 402026209") == 402026209
+    assert target_tic_id("not a TIC") is None
+
+
+def test_missing_sector_metadata_is_not_converted_to_an_integer():
+    data = pd.DataFrame({"sector": [1, np.nan, np.inf, "bad", 2.0, 2.5]})
+    assert usable_sector_ids(data) == {1, 2}

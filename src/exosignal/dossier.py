@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .config import VettingConfig
@@ -15,6 +16,14 @@ from .vetting import Diagnostic, candidate_vetting, pixel_source_diagnostic, ret
 
 def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def usable_sector_ids(data: pd.DataFrame) -> set[int]:
+    """Return finite integral sector metadata without turning bad values into TIC failures."""
+    if "sector" not in data:
+        return set()
+    values = pd.to_numeric(data["sector"], errors="coerce").to_numpy(dtype=float)
+    return {int(value) for value in values if np.isfinite(value) and value.is_integer()}
 
 
 def run_vetting_dossiers(tic_id: int, output_root: Path | str = "outputs/targets", config: VettingConfig | None = None) -> dict[str, object]:
@@ -33,11 +42,14 @@ def run_vetting_dossiers(tic_id: int, output_root: Path | str = "outputs/targets
     metadata = json.loads((run_directory / "target_metadata.json").read_text())
     _write_json(run_directory / "vetting_config.json", config.to_dict())
 
-    if config.retrieve_pixel_data:
+    sectors = usable_sector_ids(data)
+    if config.retrieve_pixel_data and sectors:
         tpfs, retrieval_errors = retrieve_spoc_tpfs(
-            tic_id, set(data["sector"].astype(int).unique()), run_directory / "mast_cache" / "tpf",
+            tic_id, sectors, run_directory / "mast_cache" / "tpf",
             config.pixel_download_timeout_seconds,
         )
+    elif config.retrieve_pixel_data:
+        tpfs, retrieval_errors = {}, ["Pixel retrieval unavailable: processed light curve has no finite integer sector metadata."]
     else:
         tpfs, retrieval_errors = {}, ["Pixel retrieval intentionally disabled for this scalable benchmark run."]
     summaries: list[dict[str, object]] = []
