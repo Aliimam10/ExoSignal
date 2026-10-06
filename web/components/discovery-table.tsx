@@ -1,0 +1,16 @@
+"use client";
+
+import Link from "next/link";
+import { ExternalLink, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { formatNumber, percent } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/badge";
+
+type Row = Record<string, string>;
+
+export function DiscoveryTable({ ranking, reveal }: { ranking: Row[]; reveal: Row[] }) {
+  const [query, setQuery] = useState(""); const [sort, setSort] = useState<"score" | "tic">("score");
+  const post = useMemo(() => new Map(reveal.map((row) => [`${row.tic_id}-${row.candidate_id}`, row])), [reveal]);
+  const rows = useMemo(() => ranking.filter((row) => `${row.tic_id} ${row.candidate_id}`.includes(query.trim())).sort((a, b) => sort === "score" ? Number(b.planet_like_probability) - Number(a.planet_like_probability) : Number(a.tic_id) - Number(b.tic_id)), [query, ranking, sort]);
+  return <><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><label className="flex items-center gap-2 rounded-lg border border-line bg-white/[.03] px-3 py-2 text-sm text-mist"><Search size={15} /><span className="sr-only">Filter TICs</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter TIC or candidate" className="w-44 bg-transparent outline-none placeholder:text-slate-500" /></label><div className="flex gap-2"><button onClick={() => setSort("score")} className={`rounded-md px-3 py-2 text-xs ${sort === "score" ? "bg-cyan/15 text-cyan" : "text-mist hover:bg-white/[.05]"}`}>Ranking score</button><button onClick={() => setSort("tic")} className={`rounded-md px-3 py-2 text-xs ${sort === "tic" ? "bg-cyan/15 text-cyan" : "text-mist hover:bg-white/[.05]"}`}>TIC</button></div></div><div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="border-b border-line bg-white/[.025] text-xs uppercase tracking-[.12em] text-slate-500"><tr><th className="px-5 py-4">TIC / signal</th><th className="px-5 py-4">Period</th><th className="px-5 py-4">Depth</th><th className="px-5 py-4">Ranking score</th><th className="px-5 py-4">Vetting</th><th className="px-5 py-4">Post-freeze reveal</th><th className="px-5 py-4" /></tr></thead><tbody>{rows.map((row) => { const revealRow = post.get(`${row.tic_id}-${row.candidate_id}`); return <tr key={`${row.tic_id}-${row.candidate_id}`} className="border-b border-line/60 transition hover:bg-white/[.025]"><td className="px-5 py-4 font-medium text-white">TIC {row.tic_id}<span className="ml-2 text-slate-500">{row.candidate_id}</span></td><td className="px-5 py-4 text-mist">{formatNumber(row.period_days, 4)} d</td><td className="px-5 py-4 text-mist">{percent(row.depth, 3)}</td><td className="px-5 py-4"><span className="font-mono text-cyan">{formatNumber(row.planet_like_probability, 3)}</span></td><td className="px-5 py-4"><StatusBadge status={row.vetting_status} /></td><td className="px-5 py-4 text-xs text-mist">{revealRow?.catalogue_reveal || "Not queried"}</td><td className="px-5 py-4"><Link href={`/targets/${row.tic_id}?source=discovery`} className="inline-flex items-center gap-1 text-cyan hover:text-white">Dossier <ExternalLink size={14} /></Link></td></tr>; })}</tbody></table></div></>;
+}
