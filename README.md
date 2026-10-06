@@ -88,5 +88,54 @@ Target Pixel Files are cached per TIC/sector. A centroid consistent with the
 target does **not** confirm a planet, and unavailable TPF data are reported as
 `Pixel source check: NOT AVAILABLE`, never as a candidate failure.
 
-This repository currently implements **Commit 3 only**. It does not yet
-perform catalogue crossmatching, ML, discovery-sample searches, or UI work.
+## Commit 4 benchmark, ranking, discovery, and sensitivity
+
+Commit 4 adds an auditable research workflow, not a planet classifier that
+can be trusted without human review. Public ExoFOP dispositions are used only
+to create a separate ground-truth manifest. The model features are solely
+numeric quantities measured by ExoSignal: BLS/TLS signal strength, depth and
+duration, event scatter, odd/even and secondary measurements, sector
+consistency, out-of-transit RMS, CROWDSAP, and difference-image offset. The
+`PASS`/`WARNING`/`FAIL` strings and every catalogue column are deliberately
+excluded. Missing pixel values remain NaN, with an explicit `pixel_available`
+feature and median imputation inside each fitted model pipeline.
+
+```bash
+# Labels are stored separately and never become model columns.
+exosignal label-manifest --per-class 100
+exosignal benchmark outputs/benchmark/label_manifest.csv
+exosignal train outputs/benchmark/benchmark_features.csv
+
+# This is catalogue-blind and freezes its ranking before reveal.
+exosignal discover --sector 2 --maximum-targets 20 \
+  --model outputs/models/logistic_regression.joblib
+exosignal reveal outputs/discovery/sector_002/pre_crossmatch_ranking.csv
+
+# Inject before long-timescale detrending and rerun BLS.
+exosignal inject "TIC 402026209"
+```
+
+Train/validation/test partitions are made by TIC (approximately 70/15/15),
+so neither different candidates nor sectors from one target cross partitions.
+The final test set is not used to fit the models or Random Forest's sigmoid
+probability calibration; calibration uses validation TICs only. Reports give
+precision, recall, PR-AUC, ROC-AUC, Brier score, confusion matrix, and a
+calibration curve, rather than foregrounding accuracy.
+
+Discovery records its MAST sector selection, product choice, deterministic
+ordering, attempted-TIC manifest, failures, and an immutable
+`pre_crossmatch_ranking.csv`. Catalogue reveal subsequently requires TIC plus
+period consistency (or an explicitly reported P/2 or 2P harmonic), rather
+than TIC identity alone. An unmatched signal is labelled only
+`POTENTIALLY UNCATALOGUED TRANSIT-LIKE SIGNAL`.
+
+When the model directory contains its persisted benchmark split, discovery
+automatically excludes every benchmark TIC before it samples the MAST sector;
+this prevents a training or held-out benchmark target being reused as the
+headline blind-discovery population.
+
+The compact injection grid writes exact-period and harmonic recoveries
+separately. It injects into saved per-sector PDCSAP-normalised data before the
+long-timescale detrending and BLS stages; quality removal and per-sector scale
+normalisation have already occurred. It is a sensitivity experiment, not a
+completeness claim.

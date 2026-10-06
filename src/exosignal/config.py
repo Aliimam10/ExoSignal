@@ -69,6 +69,8 @@ class VettingConfig:
     pixel_minimum_in_cadences: int = 3
     pixel_minimum_out_cadences: int = 5
     generate_pixel_plots: bool = True
+    retrieve_pixel_data: bool = True
+    pixel_download_timeout_seconds: float = 1200.0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -85,6 +87,7 @@ class BenchmarkConfig:
     random_forest_trees: int = 300
     probability_threshold: float = 0.5
     calibration_method: str = "sigmoid"
+    minimum_calibration_per_class: int = 10
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

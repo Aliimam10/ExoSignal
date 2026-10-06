@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from contextlib import contextmanager
 from pathlib import Path
+import signal
+import threading
 from typing import Any
 
 import numpy as np
@@ -383,12 +386,30 @@ def _expected_tpf_position(tpf: Any) -> tuple[float, float] | None:
     return ((shape[-1] - 1) / 2, (shape[-2] - 1) / 2) if len(shape) == 3 else None
 
 
-def retrieve_spoc_tpfs(tic_id: int, sectors: set[int], cache_directory: Path) -> tuple[dict[int, Any], list[str]]:
+@contextmanager
+def _mast_timeout(seconds: float):
+    """Interrupt a main-thread MAST operation instead of blocking a benchmark."""
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    def expired(_signum: int, _frame: object) -> None:
+        raise TimeoutError(f"MAST TPF operation exceeded {seconds:g} seconds.")
+    old_handler = signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def retrieve_spoc_tpfs(tic_id: int, sectors: set[int], cache_directory: Path, timeout_seconds: float = 120.0) -> tuple[dict[int, Any], list[str]]:
     """Retrieve/cache at most one normal SPOC TPF per requested sector."""
     try:
         import lightkurve as lk
 
-        result = lk.search_targetpixelfile(f"TIC {tic_id}", mission="TESS", author="SPOC")
+        with _mast_timeout(timeout_seconds):
+            result = lk.search_targetpixelfile(f"TIC {tic_id}", mission="TESS", author="SPOC")
         tpfs: dict[int, Any] = {}
         errors: list[str] = []
         for index in selected_product_indices(result):
@@ -397,7 +418,8 @@ def retrieve_spoc_tpfs(tic_id: int, sectors: set[int], cache_directory: Path) ->
             if sector not in sectors:
                 continue
             try:
-                tpf = result[index].download(download_dir=str(cache_directory))
+                with _mast_timeout(timeout_seconds):
+                    tpf = result[index].download(download_dir=str(cache_directory))
                 if tpf is not None:
                     tpfs[sector] = tpf
             except Exception as error:

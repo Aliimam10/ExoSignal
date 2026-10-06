@@ -53,6 +53,16 @@ def test_events_distinguish_intersector_gap_from_insufficient_cadence():
     assert not events.loc[events["category"] == "outside_observing_coverage", "depth"].notna().any()
 
 
+def test_partly_observed_event_with_too_few_points_is_not_a_gap():
+    candidate = _candidate()
+    # One cadence overlaps a predicted transit window, so this is an observed
+    # but insufficiently sampled event rather than an inter-sector gap.
+    data = pd.DataFrame({"time": [0.5], "flux": [0.0], "sector": [1]})
+    events = individual_transit_events(data, candidate, VettingConfig())
+    row = events.loc[events["event_number"] == 0].iloc[0]
+    assert row["category"] == "insufficient_usable_cadence"
+
+
 def test_sector_consistency_compares_measurable_sector_depths():
     events = pd.DataFrame({
         "category": ["detected"] * 4,

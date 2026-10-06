@@ -62,15 +62,28 @@ def recovery_kind(injected_period: float, recovered_period: float | None, tolera
 def inject_and_recover(data: pd.DataFrame, injection: Injection, preprocessing_config: PreprocessingConfig | None = None, search_config: SearchConfig | None = None) -> dict[str, object]:
     """Run real-data injection through normal detrending and BLS detection."""
     preprocessing_config = preprocessing_config or PreprocessingConfig()
-    search_config = search_config or SearchConfig(tls_enabled=False, max_candidates=1)
+    search_config = search_config or SearchConfig(tls_enabled=False, max_candidates=3)
     injected = inject_transit(data, injection)
     processed = preprocess_injected(injected, preprocessing_config)
     candidates, _, _ = search_transits(processed, preprocessing_config, search_config)
-    recovered: Candidate | None = candidates[0] if candidates else None
+    # A real target can contain an unrelated strong signal.  The normal
+    # iterative residual search is therefore allowed to return several
+    # independent peaks; recovery is credited only if *one* obeys the stated
+    # exact/harmonic rule, never merely because a BLS peak exists.
+    kinds = [recovery_kind(injection.period_days, candidate.period_days) for candidate in candidates]
+    try:
+        index = kinds.index("exact_period")
+    except ValueError:
+        try:
+            index = kinds.index("simple_harmonic")
+        except ValueError:
+            index = 0 if candidates else None
+    recovered: Candidate | None = candidates[index] if index is not None else None
     return {
         "injection": injection.to_dict(),
         "recovered": recovered.to_dict() if recovered else None,
         "recovery": recovery_kind(injection.period_days, recovered.period_days if recovered else None),
+        "all_recovered_periods_days": [candidate.period_days for candidate in candidates],
         "period_fractional_error": (recovered.period_days / injection.period_days - 1.0) if recovered else None,
         "processed_cadences": len(processed),
     }

@@ -10,7 +10,7 @@ import pandas as pd
 from .config import VettingConfig
 from .plotting import plot_pixel_diagnostic
 from .search import Candidate
-from .vetting import candidate_vetting, pixel_source_diagnostic, retrieve_spoc_tpfs
+from .vetting import Diagnostic, candidate_vetting, pixel_source_diagnostic, retrieve_spoc_tpfs
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -33,12 +33,22 @@ def run_vetting_dossiers(tic_id: int, output_root: Path | str = "outputs/targets
     metadata = json.loads((run_directory / "target_metadata.json").read_text())
     _write_json(run_directory / "vetting_config.json", config.to_dict())
 
-    tpfs, retrieval_errors = retrieve_spoc_tpfs(
-        tic_id, set(data["sector"].astype(int).unique()), run_directory / "mast_cache" / "tpf"
-    )
+    if config.retrieve_pixel_data:
+        tpfs, retrieval_errors = retrieve_spoc_tpfs(
+            tic_id, set(data["sector"].astype(int).unique()), run_directory / "mast_cache" / "tpf",
+            config.pixel_download_timeout_seconds,
+        )
+    else:
+        tpfs, retrieval_errors = {}, ["Pixel retrieval intentionally disabled for this scalable benchmark run."]
     summaries: list[dict[str, object]] = []
     for candidate in candidates:
-        pixel_diagnostic, pixel_measurements = pixel_source_diagnostic(candidate, tpfs, config)
+        if config.retrieve_pixel_data:
+            pixel_diagnostic, pixel_measurements = pixel_source_diagnostic(candidate, tpfs, config)
+        else:
+            pixel_diagnostic, pixel_measurements = (
+                Diagnostic("NOT_AVAILABLE", {"sector_results": []}, "Pixel retrieval disabled for this benchmark configuration.", "Pixel source check: NOT AVAILABLE."),
+                [],
+            )
         if retrieval_errors:
             pixel_diagnostic.values["retrieval_errors"] = retrieval_errors
         diagnostics, events = candidate_vetting(data, metadata, candidate, config, pixel_diagnostic)

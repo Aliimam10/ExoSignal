@@ -70,3 +70,14 @@ def test_unusable_sector_is_explained():
             quality=np.zeros(5),
         )
 
+
+def test_duplicate_timestamps_use_a_safe_constant_trend():
+    result = process_sector(
+        sector=4,
+        time=np.zeros(30),
+        flux=np.full(30, 100.0),
+        flux_err=np.ones(30),
+        quality=np.zeros(30),
+    )
+    assert len(result.data) == 30
+    assert np.allclose(result.data["flux"], 0.0)

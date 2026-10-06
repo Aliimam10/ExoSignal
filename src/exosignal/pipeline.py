@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .config import PreprocessingConfig, SearchConfig
+from .config import PreprocessingConfig, SearchConfig, VettingConfig
 from .dossier import run_vetting_dossiers
 from .errors import ExoSignalError
 from .plotting import (
@@ -33,6 +33,9 @@ def analyse_target(
     output_root: Path | str = "outputs/targets",
     config: PreprocessingConfig | None = None,
     search_config: SearchConfig | None = None,
+    run_vetting: bool = True,
+    vetting_config: VettingConfig | None = None,
+    generate_plots: bool = True,
 ) -> dict[str, object]:
     """Run Commit 2's retrieval, processing, and transit-like signal search.
 
@@ -101,7 +104,8 @@ def analyse_target(
     )
     _write_json(config_path, config.to_dict())
     _write_json(search_config_path, search_config.to_dict())
-    plot_processed_lightcurve(refined, plot_path, tic_id)
+    if generate_plots:
+        plot_processed_lightcurve(refined, plot_path, tic_id)
     candidate_directory = run_directory / "candidates"
     candidate_directory.mkdir(exist_ok=True)
     # A rerun for the same target must not leave dossiers from a previous,
@@ -121,14 +125,20 @@ def analyse_target(
         phase_path = candidate_directory / f"{stem}_phase_folded.png"
         transit_data_path = candidate_directory / f"{stem}_individual_transits.csv"
         transit_plot_path = candidate_directory / f"{stem}_individual_transits.png"
-        plot_bls_periodogram(periodogram, periodogram_path)
-        plot_phase_folded(refined, candidate, phase_path)
+        if generate_plots:
+            plot_bls_periodogram(periodogram, periodogram_path)
+            plot_phase_folded(refined, candidate, phase_path)
         individual_transit_data(refined, candidate).to_csv(transit_data_path, index=False)
-        plot_individual_transits(refined, candidate, transit_plot_path)
-        candidate_outputs.extend(
-            [str(periodogram_path), str(phase_path), str(transit_data_path), str(transit_plot_path)]
-        )
-    vetting_summary = run_vetting_dossiers(tic_id, output_root)
+        if generate_plots:
+            plot_individual_transits(refined, candidate, transit_plot_path)
+            candidate_outputs.extend([str(periodogram_path), str(phase_path), str(transit_data_path), str(transit_plot_path)])
+        else:
+            candidate_outputs.append(str(transit_data_path))
+    vetting_summary = (
+        run_vetting_dossiers(tic_id, output_root, vetting_config)
+        if run_vetting
+        else {"tic_id": tic_id, "skipped": True}
+    )
     return {
         "tic_id": tic_id,
         "run_directory": str(run_directory),

@@ -52,9 +52,18 @@ def _running_median_trend(
             continue
 
         cadence_days = np.nanmedian(np.diff(segment_time))
-        window_points = _odd_at_least(
-            max(3, int(round(config.detrend_window_days / cadence_days)))
-        )
+        if not np.isfinite(cadence_days) or cadence_days <= 0:
+            # Rare duplicate/engineering timestamps cannot define a temporal
+            # filter scale.  Preserve the sector with a robust constant trend
+            # rather than allowing an invalid window calculation to fail a
+            # benchmark target.
+            trend[segment] = np.nanmedian(segment_flux)
+            continue
+        window_ratio = config.detrend_window_days / cadence_days
+        if not np.isfinite(window_ratio):
+            trend[segment] = np.nanmedian(segment_flux)
+            continue
+        window_points = _odd_at_least(max(3, int(round(window_ratio))))
         # A segment shorter than the intended window is assigned its robust
         # baseline rather than filtering across an observational boundary.
         if segment_mask.any():
