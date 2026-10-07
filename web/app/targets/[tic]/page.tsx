@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getTarget } from "@/lib/outputs";
-import { TargetReport } from "@/components/target-report";
+import { getCatalogueAssessment } from "@/lib/outputs";
+import { CatalogueAssessment } from "@/components/catalogue-assessment";
 import { Card } from "@/components/ui/card";
 
-export default async function TargetPage({ params, searchParams }: { params: Promise<{ tic: string }>; searchParams: Promise<{ source?: string }> }) {
-  const { tic } = await params; const { source } = await searchParams; const target = await getTarget(tic, source);
+export default async function TargetPage({ params }: { params: Promise<{ tic: string }> }) {
+  const { tic } = await params; const assessment = await getCatalogueAssessment(tic);
   if (!/^\d+$/.test(tic)) notFound();
-  if (!target) return <main className="mx-auto max-w-3xl px-5 py-20"><Card className="p-8"><p className="font-mono text-xs uppercase tracking-[.18em] text-cyan">No local dossier</p><h1 className="mt-3 text-3xl font-semibold">TIC {tic} has not been analysed here yet.</h1><p className="mt-4 leading-7 text-mist">This frontend reads ExoSignal&apos;s persisted scientific outputs. Run the Python analysis for this TIC, then refresh this page; no result is fabricated in the interface.</p><pre className="mt-6 overflow-x-auto rounded-lg border border-line bg-black/20 p-4 text-sm text-cyan">exosignal analyze "TIC {tic}"</pre><Link href="/" className="mt-6 inline-block text-cyan hover:text-white">Return to target search →</Link></Card></main>;
-  return <TargetReport target={target} />;
+  if (!assessment) return <main className="mx-auto max-w-3xl px-5 py-20"><Card className="p-8"><p className="font-mono text-xs uppercase tracking-[.18em] text-cyan">No published TOI assessment</p><h1 className="mt-3 text-3xl font-semibold">TIC {tic} has no locally prepared NASA TOI assessment.</h1><p className="mt-4 leading-7 text-mist">A catalogue-only classifier can only score targets with published NASA TOI candidate measurements. It cannot determine whether an arbitrary star hosts an exoplanet.</p><Link href="/" className="mt-6 inline-block text-cyan hover:text-white">Return to TIC assessment →</Link></Card></main>;
+  return <CatalogueAssessment assessment={assessment} />;
 }

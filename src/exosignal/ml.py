@@ -17,7 +17,7 @@ from sklearn.frozen import FrozenEstimator
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    average_precision_score, brier_score_loss, confusion_matrix, precision_score,
+    accuracy_score, average_precision_score, brier_score_loss, confusion_matrix, precision_score,
     recall_score, roc_auc_score,
 )
 from sklearn.pipeline import Pipeline
@@ -66,6 +66,7 @@ def split_by_tic(frame: pd.DataFrame, config: BenchmarkConfig) -> tuple[pd.DataF
 def _metrics(y_true: np.ndarray, probabilities: np.ndarray, threshold: float) -> dict[str, Any]:
     prediction = (probabilities >= threshold).astype(int)
     result: dict[str, Any] = {
+        "accuracy": float(accuracy_score(y_true, prediction)),
         "precision": float(precision_score(y_true, prediction, zero_division=0)),
         "recall": float(recall_score(y_true, prediction, zero_division=0)),
         "confusion_matrix": confusion_matrix(y_true, prediction, labels=[0, 1]).tolist(),
@@ -81,13 +82,66 @@ def _metrics(y_true: np.ndarray, probabilities: np.ndarray, threshold: float) ->
     return result
 
 
-def _plot_evaluation(y_true: np.ndarray, baseline: np.ndarray, calibrated: np.ndarray, threshold: float, path: Path) -> None:
+def strong_class_thresholds(
+    y_true: np.ndarray,
+    probabilities: np.ndarray,
+    minimum_purity: float = 0.80,
+) -> dict[str, Any]:
+    """Find maximum-coverage strong classes from validation predictions.
+
+    ``minimum_purity`` is the minimum observed class agreement within each
+    strong region. The resulting boundaries are data-derived and must never
+    use final test labels. Scores between them remain explicitly uncertain.
+    """
+    if not 0.5 < minimum_purity < 1:
+        raise ValueError("Strong-class validation purity must be between 0.5 and 1.")
+    frame = pd.DataFrame({"label": y_true.astype(int), "score": probabilities.astype(float)}).sort_values("score")
+    lower_candidates: list[tuple[float, int, float]] = []
+    upper: tuple[float, int, float] | None = None
+    for threshold in frame["score"].drop_duplicates().to_numpy():
+        lower_group = frame.loc[frame["score"] <= threshold]
+        fp_eb_fraction = float((lower_group["label"] == 0).mean())
+        if fp_eb_fraction >= minimum_purity:
+            lower_candidates.append((float(threshold), len(lower_group), fp_eb_fraction))
+        upper_group = frame.loc[frame["score"] >= threshold]
+        planet_fraction = float((upper_group["label"] == 1).mean())
+        if upper is None and planet_fraction >= minimum_purity:
+            # First qualifying threshold gives the widest strong-planet band.
+            upper = (float(threshold), len(upper_group), planet_fraction)
+    # Require a real uncertain interval. A low-score subset can remain
+    # negative-dominated even after it begins to include high-score objects,
+    # so choose the widest qualifying lower band strictly below the upper one.
+    lower = max((candidate for candidate in lower_candidates if upper is not None and candidate[0] < upper[0]), default=None)
+    if lower is None or upper is None:
+        raise ValueError("Validation predictions cannot support separate strong and uncertain classes at the requested purity.")
+    return {
+        "source": "validation TICs only",
+        "minimum_observed_validation_purity": minimum_purity,
+        "strong_fp_eb_max_score": lower[0],
+        "strong_planet_like_min_score": upper[0],
+        "strong_fp_eb_validation_examples": lower[1],
+        "strong_fp_eb_validation_purity": lower[2],
+        "strong_planet_like_validation_examples": upper[1],
+        "strong_planet_like_validation_purity": upper[2],
+    }
+
+
+def _plot_evaluation(
+    y_true: np.ndarray,
+    baseline: np.ndarray,
+    calibrated: np.ndarray,
+    selected_model: str,
+    threshold: float,
+    path: Path,
+) -> None:
     """Persist a compact held-out confusion/calibration artifact."""
     figure, axes = plt.subplots(1, 2, figsize=(10, 4))
-    matrix = confusion_matrix(y_true, calibrated >= threshold, labels=[0, 1])
+    selected_probabilities = baseline if selected_model == "logistic_regression" else calibrated
+    selected_label = "Logistic regression" if selected_model == "logistic_regression" else "Calibrated Random Forest"
+    matrix = confusion_matrix(y_true, selected_probabilities >= threshold, labels=[0, 1])
     image = axes[0].imshow(matrix, cmap="Blues")
     figure.colorbar(image, ax=axes[0], fraction=0.046)
-    axes[0].set(xticks=[0, 1], yticks=[0, 1], xticklabels=["FP/EB-like", "planet-like"], yticklabels=["FP/EB-like", "planet-like"], xlabel="Predicted", ylabel="Ground truth", title="Calibrated RF: held-out test")
+    axes[0].set(xticks=[0, 1], yticks=[0, 1], xticklabels=["FP/EB-like", "planet-like"], yticklabels=["FP/EB-like", "planet-like"], xlabel="Predicted", ylabel="Ground truth", title=f"{selected_label}: held-out test")
     for (row, column), value in np.ndenumerate(matrix):
         axes[0].text(column, row, str(value), ha="center", va="center")
     for probabilities, label, color in ((baseline, "Logistic regression", "tab:gray"), (calibrated, "Calibrated Random Forest", "tab:blue")):
@@ -101,7 +155,13 @@ def _plot_evaluation(y_true: np.ndarray, baseline: np.ndarray, calibrated: np.nd
     plt.close(figure)
 
 
-def train_models(frame: pd.DataFrame, output_directory: Path | str, config: BenchmarkConfig | None = None) -> dict[str, Any]:
+def train_models(
+    frame: pd.DataFrame,
+    output_directory: Path | str,
+    config: BenchmarkConfig | None = None,
+    feature_names: list[str] | tuple[str, ...] | None = None,
+    strong_class_minimum_purity: float | None = None,
+) -> dict[str, Any]:
     """Fit a baseline and one RF, calibrating RF only on held-out validation.
 
     The test partition is not inspected until this function's final reporting
@@ -125,16 +185,17 @@ def train_models(frame: pd.DataFrame, output_directory: Path | str, config: Benc
             "Validation calibration population is too small for defensible probability calibration: "
             f"need at least {config.minimum_calibration_per_class} TICs per class, got {validation_counts.to_dict()}."
         )
-    missing_features = [name for name in MODEL_FEATURES if name not in frame.columns]
+    declared_features = list(feature_names or MODEL_FEATURES)
+    missing_features = [name for name in declared_features if name not in frame.columns]
     if missing_features:
         raise ValueError(f"Benchmark table is missing documented ExoSignal features: {missing_features}.")
     all_unavailable = [
-        name for name in MODEL_FEATURES
+        name for name in declared_features
         if not pd.to_numeric(frame[name], errors="coerce").notna().any()
     ]
     # A column with no measurement in any benchmark TIC is not a model feature:
     # passing it through an imputer only hides that it supplied no information.
-    features = [name for name in MODEL_FEATURES if name not in all_unavailable]
+    features = [name for name in declared_features if name not in all_unavailable]
     if not features:
         raise ValueError("No documented ExoSignal feature has an observed value in this benchmark.")
     x_train, y_train = train[features], train["label"].to_numpy()
@@ -149,6 +210,27 @@ def train_models(frame: pd.DataFrame, output_directory: Path | str, config: Benc
     calibrated.fit(x_validation, y_validation)
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
+    # Select the model family before any test probabilities are inspected.
+    # The Random Forest is compared pre-calibration here because its sigmoid
+    # calibration is fitted on this very validation partition.
+    baseline_validation = baseline.predict_proba(x_validation)[:, 1]
+    forest_validation = forest.predict_proba(x_validation)[:, 1]
+    baseline_validation_metrics = _metrics(y_validation, baseline_validation, config.probability_threshold)
+    forest_validation_metrics = _metrics(y_validation, forest_validation, config.probability_threshold)
+    def selection_key(metrics: dict[str, Any]) -> tuple[float, float, float, float]:
+        return (
+            float(metrics["pr_auc"] if metrics["pr_auc"] is not None else -np.inf),
+            float(metrics["roc_auc"] if metrics["roc_auc"] is not None else -np.inf),
+            -float(metrics["brier_score"]),
+            float(metrics["precision"]),
+        )
+    selected = "logistic_regression" if selection_key(baseline_validation_metrics) >= selection_key(forest_validation_metrics) else "calibrated_random_forest"
+    selected_validation = baseline_validation if selected == "logistic_regression" else calibrated.predict_proba(x_validation)[:, 1]
+    strong_bands = (
+        strong_class_thresholds(y_validation, selected_validation, strong_class_minimum_purity)
+        if strong_class_minimum_purity is not None else None
+    )
+
     baseline_test = baseline.predict_proba(x_test)[:, 1]
     calibrated_test = calibrated.predict_proba(x_test)[:, 1]
     joblib.dump(baseline, output / "logistic_regression.joblib")
@@ -159,19 +241,25 @@ def train_models(frame: pd.DataFrame, output_directory: Path | str, config: Benc
     )
     pd.concat([train, validation, test], ignore_index=True).to_csv(output / "benchmark_features_with_splits.csv", index=False)
     test.assign(logistic_probability=baseline_test, calibrated_random_forest_probability=calibrated_test).to_csv(output / "held_out_test_predictions.csv", index=False)
-    _plot_evaluation(y_test, baseline_test, calibrated_test, config.probability_threshold, output / "held_out_model_evaluation.png")
+    _plot_evaluation(y_test, baseline_test, calibrated_test, selected, config.probability_threshold, output / "held_out_model_evaluation.png")
+    baseline_metrics = _metrics(y_test, baseline_test, config.probability_threshold)
+    forest_metrics = _metrics(y_test, calibrated_test, config.probability_threshold)
     result = {
         "features": features,
         "excluded_all_unavailable_features": all_unavailable,
-        "selected_ranking_model": "logistic_regression",
-        "selection_rationale": "Selected from the held-out test results: Logistic Regression has higher PR-AUC and ROC-AUC and lower Brier score than the calibrated Random Forest.",
+        "selected_ranking_model": selected,
+        "selection_rationale": "Selected from validation metrics before final test evaluation, in this order: PR-AUC, ROC-AUC, lower Brier score, then precision.",
         "config": config.to_dict(),
         "calibration": "sigmoid calibration fitted on validation TICs only after fitting the Random Forest on training TICs.",
         "calibration_population_tics": {str(label): int(count) for label, count in validation_counts.items()},
         "split_counts": {name: {str(label): int(count) for label, count in part.groupby("label")["tic_id"].nunique().items()} for name, part in (("train", train), ("validation", validation), ("test", test))},
-        "logistic_regression_test": _metrics(y_test, baseline_test, config.probability_threshold),
-        "calibrated_random_forest_test": _metrics(y_test, calibrated_test, config.probability_threshold),
+        "logistic_regression_validation": baseline_validation_metrics,
+        "random_forest_validation_precalibration": forest_validation_metrics,
+        "logistic_regression_test": baseline_metrics,
+        "calibrated_random_forest_test": forest_metrics,
     }
+    if strong_bands is not None:
+        result["validation_strong_class_thresholds"] = strong_bands
     (output / "model_report.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 

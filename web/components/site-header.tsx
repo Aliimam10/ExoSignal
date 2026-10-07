@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Orbit } from "lucide-react";
 
-const links = [["Search", "/"], ["Discovery", "/discovery"], ["Validation", "/validation"], ["Methodology", "/methodology"]];
+const links = [["Summary", "/"], ["TIC catalogue", "/catalogue"], ["Benchmark validation", "/validation"], ["Methodology", "/methodology"]];
 
 export function SiteHeader() {
   return <header className="sticky top-0 z-40 border-b border-line/70 bg-ink/85 backdrop-blur-xl">

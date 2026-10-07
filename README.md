@@ -148,3 +148,39 @@ separately. It injects into saved per-sector PDCSAP-normalised data before the
 long-timescale detrending and BLS stages; quality removal and per-sector scale
 normalisation have already occurred. It is a sensitivity experiment, not a
 completeness claim.
+
+## NASA catalogue benchmark interface
+
+The `web/` workspace is a Next.js + TypeScript + Tailwind interface for a
+small, reproducible **catalogue-only** benchmark. It uses numerical values
+already published in the public NASA Exoplanet Archive TOI table; it does not
+download TESS light curves or claim independent transit recovery.
+
+```bash
+# Uses every clean uniquely-labelled TIC, while excluding the frozen pilot's
+# already-viewed final-test TICs. No TESS light curves are used for training.
+exosignal catalogue-benchmark --output-directory outputs/catalogue_benchmark_final \
+  --all-eligible \
+  --exclude-prior-test-from outputs/catalogue_benchmark_pilot_1000/models/benchmark_features_with_splits.csv
+
+# Scores a TIC only if it has a published TOI candidate row.
+exosignal catalogue-assess "TIC 402026209"
+
+cd web
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:3000` and enter `402026209` for an included example.
+The interface classifies published candidates as `Strongly planet-like`,
+`Uncertain`, or `Strongly FP/EB-like`. Those two strong boundaries are derived
+from validation TICs at a documented 85% observed class-agreement criterion;
+the final test split is not used for that choice. The fixed 0.50 cutoff is
+used only for the binary benchmark metrics. It keeps NASA's original numerical
+feature names but excludes IDs, names, disposition, dates, and catalogue-status
+fields from the model. The validation page reports
+precision, recall, PR-AUC, ROC-AUC, confusion matrix, calibration, and
+accuracy from a final TIC-level held-out test set. The score is not a planet
+confirmation probability and cannot assess a random star without a TOI row.
+The per-target page can separately retrieve public TESS light curves on demand;
+those light curves are never downloaded for catalogue-model training.

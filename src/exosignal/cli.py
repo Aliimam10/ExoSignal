@@ -13,6 +13,7 @@ import pandas as pd
 from .errors import ExoSignalError
 from .benchmark import benchmark_manifest, build_benchmark, supplemental_negative_manifest
 from .catalogue import download_toi_catalogue, reveal_catalogue_matches
+from .catalogue_benchmark import assess_catalogue_tic, build_catalogue_benchmark
 from .config import SearchConfig
 from .discovery import run_discovery
 from .dossier import run_vetting_dossiers
@@ -63,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     inject.add_argument("--periods", default="1.5,3.0,7.0")
     inject.add_argument("--depths", default="0.001,0.005,0.01")
     inject.add_argument("--duration-hours", type=float, default=2.0)
+    catalogue_benchmark = subparsers.add_parser("catalogue-benchmark", help="Build a NASA TOI catalogue-only labelled benchmark; no light curves are retrieved.")
+    catalogue_benchmark.add_argument("--output-directory", default="outputs/catalogue_benchmark_final")
+    catalogue_benchmark.add_argument("--per-class", type=int, default=500, help="Trusted CP/KP and FP/FA TICs per class (default: 500 each).")
+    catalogue_benchmark.add_argument("--all-eligible", action="store_true", help="Use every eligible uniquely-labelled TIC after exclusions, retaining any source class imbalance.")
+    catalogue_benchmark.add_argument("--exclude-prior-test-from", help="Previous benchmark_features_with_splits.csv; its final-test TICs are excluded from this new benchmark.")
+    catalogue_assess = subparsers.add_parser("catalogue-assess", help="Assess a published NASA TOI row using the frozen catalogue benchmark model.")
+    catalogue_assess.add_argument("tic_id")
+    catalogue_assess.add_argument("--benchmark-directory", default="outputs/catalogue_benchmark_final")
     return parser
 
 
@@ -112,6 +121,16 @@ def main() -> None:
             output.parent.mkdir(parents=True, exist_ok=True)
             revealed.to_csv(output, index=False)
             summary = {"catalogue_reveal": str(output), "signals": len(revealed), "no_match_in_queried_exofop_toi_catalogue": int(revealed.get("catalogue_reveal", pd.Series(dtype=str)).eq("NO_MATCH_IN_QUERIED_EXOFOP_TOI_CATALOGUE").sum())}
+        elif args.command == "catalogue-benchmark":
+            excluded_tics: set[int] = set()
+            if args.exclude_prior_test_from:
+                previous = pd.read_csv(args.exclude_prior_test_from)
+                if not {"tic_id", "split"}.issubset(previous.columns):
+                    raise ExoSignalError("Prior split file must contain tic_id and split columns.")
+                excluded_tics = set(previous.loc[previous["split"].eq("test"), "tic_id"].astype(int))
+            summary = build_catalogue_benchmark(args.output_directory, None if args.all_eligible else args.per_class, excluded_tics)
+        elif args.command == "catalogue-assess":
+            summary = assess_catalogue_tic(parse_tic_id(args.tic_id), args.benchmark_directory)
         else:
             tic = parse_tic_id(args.tic_id)
             data = pd.read_csv(Path(args.output_root) / str(tic) / "processed_lightcurve_initial.csv")

@@ -54,6 +54,8 @@ def test_models_fit_with_explicit_missing_pixel_values(tmp_path):
     result = train_models(pd.DataFrame(rows), tmp_path, BenchmarkConfig(random_forest_trees=10, minimum_calibration_per_class=1))
     assert (tmp_path / "calibrated_random_forest.joblib").exists()
     assert "pr_auc" in result["calibrated_random_forest_test"]
+    assert "accuracy" in result["calibrated_random_forest_test"]
+    assert "validation metrics" in result["selection_rationale"]
 
 
 def test_recovery_kind_reports_harmonics_separately():
